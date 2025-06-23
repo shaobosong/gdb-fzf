@@ -1,11 +1,8 @@
 # Forked and improved from https://github.com/plusls/gdb-fzf/blob/main/gdb-fzf.py
-#
-# It first searches for symbols within the current process space, and if not
-# found, falls back to checking a predefined list of readline library names.
 
 import ctypes
 import subprocess
-from typing import List, Any, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 # GDB module is only available when running inside GDB
 try:
@@ -41,94 +38,81 @@ class HIST_ENTRY(ctypes.Structure):
         ('data', ctypes.c_void_p),
     ]
 
+class SymbolNotFoundError(Exception):
+    def __init__(self, missing_symbols: List[str]):
+        self.missing_symbols = missing_symbols
+        message = (
+            "Failed to resolve the following required symbols: "
+            f"{', '.join(missing_symbols)}"
+        )
+        super().__init__(message)
+
 class LibReadlineProxy:
     """
-    A proxy for the readline library, dynamically loading available versions.
-    It prioritizes symbol lookup in the current process space, then falls
-    back to predefined libraries. Implemented as a singleton.
+    A proxy for the readline library that resolves all required symbols upon
+    initialization. It primarily relies on `ctypes.CDLL(None)` to find symbols
+    in the main GDB process.
     """
     _instance: Optional['LibReadlineProxy'] = None
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._init_libs()
-            cls._instance._setup_prototypes()
+            instance = super().__new__(cls)
+            try:
+                instance._initialize_symbols()
+                cls._instance = instance
+            except (OSError, SymbolNotFoundError) as e:
+                raise RuntimeError(f"{e}") from e
         return cls._instance
 
-    def _init_libs(self):
-        self._libs: List[ctypes.CDLL] = []
-        self._libs.append(ctypes.CDLL(None))
-        lib_names = ['libreadline.so.8', 'libreadline.so']
-        for name in lib_names:
+    def _initialize_symbols(self):
+        try:
+            gdb_self = ctypes.CDLL(None)
+        except OSError as e:
+            raise OSError("ctypes.CDLL(None) failed to load the host process symbols.") from e
+
+        missing_symbols: List[str] = []
+
+        # Functions
+        func_defs: Dict[str, Tuple[Optional[Type[Any]], List[Type[Any]]]] = {
+            'history_list': (ctypes.POINTER(ctypes.POINTER(HIST_ENTRY)), []),
+            'rl_add_undo': (None, [ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_char_p]),
+            'rl_bind_keyseq': (ctypes.c_int, [ctypes.c_char_p, ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int, ctypes.c_int)]),
+            'rl_delete_text': (ctypes.c_int, [ctypes.c_int, ctypes.c_int]),
+            'rl_forced_update_display': (ctypes.c_int, []),
+            'rl_insert_text': (ctypes.c_int, [ctypes.c_char_p]),
+        }
+        for name, (restype, argtypes) in func_defs.items():
             try:
-                self._libs.append(ctypes.CDLL(name))
-            except OSError:
-                continue
-
-    def _setup_prototypes(self):
-        for lib in self._libs:
-            if hasattr(lib, '_fzf_prototypes_setup'):
-                continue
-
-            if hasattr(lib, 'history_list'):
-                lib.history_list.restype = ctypes.POINTER(ctypes.POINTER(HIST_ENTRY))
-
-            if hasattr(lib, 'rl_add_undo'):
-                lib.rl_add_undo.argtypes = (ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_char_p)
-
-            if hasattr(lib, 'rl_bind_keyseq'):
-                lib.rl_bind_keyseq.argtypes = (ctypes.c_char_p, ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int, ctypes.c_int))
-                lib.rl_bind_keyseq.restype = ctypes.c_int
-
-            if hasattr(lib, 'rl_delete_text'):
-                lib.rl_delete_text.argtypes = (ctypes.c_int, ctypes.c_int)
-                lib.rl_delete_text.restype = ctypes.c_int
-
-            if hasattr(lib, 'rl_forced_update_display'):
-                lib.rl_forced_update_display.restype = ctypes.c_int
-
-            if hasattr(lib, 'rl_insert_text'):
-                lib.rl_insert_text.argtypes = (ctypes.c_char_p,)
-                lib.rl_insert_text.restype = ctypes.c_int
-
-            lib._fzf_prototypes_setup = True
-
-    def __getattr__(self, name: str) -> Any:
-        for lib in self._libs:
-            try:
-                return getattr(lib, name)
+                func = getattr(gdb_self, name)
+                func.restype = restype
+                func.argtypes = argtypes
+                setattr(self, name, func)
             except AttributeError:
-                continue
-        raise AttributeError(f"Symbol '{name}' not found in any loaded readline library.")
+                missing_symbols.append(name)
 
-    def get_symbol(self, name: str, type_: Any) -> Any:
-        """
-        Get a symbol from any available library, ensuring it's not a null pointer.
-        It continues to the next library if the symbol is not found (ValueError)
-        or if it is a null pointer.
-        """
-        for lib in self._libs:
+        # Variables
+        var_defs: Dict[str, Type[Any]] = {
+            'rl_line_buffer': ctypes.c_char_p,
+            'rl_point': ctypes.c_int,
+            'rl_end': ctypes.c_int,
+        }
+        for name, ctype in var_defs.items():
             try:
-                result = type_.in_dll(lib, name)
-                # Check for null pointers and continue if found
-                if isinstance(result, (ctypes.c_void_p, ctypes.c_char_p, ctypes._Pointer)) and not result:
-                    continue
-                return result
-            except ValueError:
-                # Symbol not found in this library, try the next one
-                continue
-        raise AttributeError(f"Symbol '{name}' of type {type_} not found or was NULL in all libraries.")
+                value_ptr = ctype.in_dll(gdb_self, name)
+                setattr(self, name, value_ptr)
+            except (ValueError, AttributeError):
+                missing_symbols.append(name)
+
+        if missing_symbols:
+            raise SymbolNotFoundError(missing_symbols)
 
 
 def get_history_list(libreadline: LibReadlineProxy) -> List[bytes]:
     """Retrieves the command history from readline."""
     ret: List[bytes] = []
-    try:
-        hlist = libreadline.history_list()
-        if not hlist:
-            return ret
-    except AttributeError:
+    hlist = libreadline.history_list()
+    if not hlist:
         return ret
 
     i = 0
@@ -153,7 +137,7 @@ def get_fzf_result(query: bytes, choices: List[bytes]) -> bytes:
     ]
 
     try:
-        fzf_args = FZF_ARGS
+        fzf_args = FZF_ARGS[:]
         fzf_args.extend(['--query', query.decode('utf-8', 'replace')])
 
         if PREVIEW_ENABLED:
@@ -170,7 +154,7 @@ def get_fzf_result(query: bytes, choices: List[bytes]) -> bytes:
             if len(results) > 1 and results[-1]:
                 return results[-1]
             if len(results) > 0 and results[0]:
-                 return results[0]
+                return results[0]
             return query
 
     except (OSError, subprocess.SubprocessError) as e:
@@ -179,28 +163,19 @@ def get_fzf_result(query: bytes, choices: List[bytes]) -> bytes:
 
 def update_readline_buffer(libreadline: LibReadlineProxy, new_text: bytes):
     """Updates the content of the readline buffer."""
-    try:
-        rl_line_buffer_ptr = libreadline.get_symbol("rl_line_buffer", ctypes.c_char_p)
-        rl_point = libreadline.get_symbol("rl_point", ctypes.c_int)
-        rl_end = libreadline.get_symbol("rl_end", ctypes.c_int)
-
-        current_text = ctypes.string_at(rl_line_buffer_ptr)
-        if new_text != current_text:
-            libreadline.rl_add_undo(2, 0, 0, None)
-            libreadline.rl_delete_text(0, rl_end.value)
-            rl_point.value = rl_end.value
-            libreadline.rl_insert_text(new_text)
-            libreadline.rl_add_undo(3, 0, 0, None)
-
-    except AttributeError as e:
-        print(f"\nFailed to update readline buffer: {e}")
+    current_text = libreadline.rl_line_buffer.value
+    if new_text != current_text:
+        libreadline.rl_add_undo(2, 0, 0, None)
+        libreadline.rl_delete_text(0, libreadline.rl_end.value)
+        libreadline.rl_point.value = libreadline.rl_end.value
+        libreadline.rl_insert_text(new_text)
+        libreadline.rl_add_undo(3, 0, 0, None)
 
 @ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int, ctypes.c_int)
-def fzf_search_history_callback(count: int, key: int) -> int:
+def fzf_search_history(count: int, key: int) -> int:
     try:
         libreadline = LibReadlineProxy()
-        rl_line_buffer_ptr = libreadline.get_symbol("rl_line_buffer", ctypes.c_char_p)
-        query = ctypes.string_at(rl_line_buffer_ptr)
+        query = libreadline.rl_line_buffer.value or b''
 
         history = get_history_list(libreadline)
         selected = get_fzf_result(query, history)
@@ -217,14 +192,15 @@ def main():
 
     try:
         libreadline = LibReadlineProxy()
-        if libreadline.rl_bind_keyseq(b"\\C-r", fzf_search_history_callback) != 0:
+        libreadline._fzf_search_history_ref = fzf_search_history
+
+        if libreadline.rl_bind_keyseq(b"\\C-r", libreadline._fzf_search_history_ref) != 0:
             print("gdb-fzf: Failed to bind C-r.")
+        else:
+            print("gdb-fzf: Press Ctrl-R for fuzzy history search.")
 
-        print("gdb-fzf: Initialized. Press Ctrl-R for fuzzy history search.")
-
-    except (AttributeError, OSError) as e:
-        print(f"gdb-fzf: Failed to initialize: {e}")
-        print("gdb-fzf: Please ensure readline development headers and fzf are installed.")
+    except Exception as e:
+        print(f"gdb-fzf: {e}")
 
 if __name__ == "__main__" and gdb:
     main()

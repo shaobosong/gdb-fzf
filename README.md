@@ -2,8 +2,7 @@
 
 Forked and improved from [plusls/gdb-fzf](https://github.com/plusls/gdb-fzf/blob/main/gdb-fzf.py)
 
-- It first searches for symbols within the current process space, and if not
-found, falls back to checking a predefined list of readline library names.
+- It searches for symbols within the GDB process space.
 - It provides a help preview using GDB's `batch` mode.
 
 # Usage
