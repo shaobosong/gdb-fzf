@@ -125,6 +125,21 @@ def history_generator(libreadline: LibReadlineProxy) -> Iterator[bytes]:
                 yield entry
         i += 1
 
+def command_generator(libreadline: LibReadlineProxy) -> Iterator[bytes]:
+    try:
+        help_output = gdb.execute("help all", to_string=True)
+        for line in help_output.splitlines():
+            line = line.strip()
+            if not line or '--' not in line:
+                continue
+            command_part = line.split('--', 1)[0].strip()
+            commands = [cmd.strip() for cmd in command_part.split(',') if cmd.strip()]
+            for cmd in commands:
+                yield cmd.encode('utf-8')
+    except RuntimeError as e:
+        raise gdb.error(f"{e}")
+    pass
+
 def get_fzf_result(extra_fzf_args: List[str], choices_generator: Iterator[bytes], query: bytes):
     fzf_args = FZF_ARGS[:]
     fzf_args.extend(extra_fzf_args)
@@ -162,7 +177,7 @@ def get_fzf_result(extra_fzf_args: List[str], choices_generator: Iterator[bytes]
                 return results[0]
             return query
     except (OSError, subprocess.SubprocessError) as e:
-        print(f"\nError running fzf: {e}. Is fzf installed and in your PATH?")
+        print(f"\ngdb-fzf: {e}. Is fzf installed and in your PATH?")
         return query
 
 def update_readline_buffer(libreadline: LibReadlineProxy, new_text: bytes):
@@ -186,7 +201,22 @@ def fzf_search_history(count: int, key: int) -> int:
         update_readline_buffer(libreadline, selected)
         libreadline.rl_forced_update_display()
     except Exception as e:
-        print(f"\nError in fzf history search: {e}")
+        print(f"\ngdb-fzf: Failed to search history: {e}")
+    return 0
+
+
+@ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int, ctypes.c_int)
+def fzf_search_command(count: int, key: int) -> int:
+    try:
+        libreadline = LibReadlineProxy()
+        query = libreadline.rl_line_buffer.value or b''
+
+        selected = get_fzf_result([], command_generator(libreadline), query)
+
+        update_readline_buffer(libreadline, selected)
+        libreadline.rl_forced_update_display()
+    except Exception as e:
+        print(f"\ngdb-fzf: Failed to search command: {e}")
     return 0
 
 def main():
@@ -196,11 +226,13 @@ def main():
     try:
         libreadline = LibReadlineProxy()
         libreadline._fzf_search_history_ref = fzf_search_history
+        libreadline._fzf_search_command_ref = fzf_search_command
 
         if libreadline.rl_bind_keyseq(b"\\C-r", libreadline._fzf_search_history_ref) != 0:
-            print("gdb-fzf: Failed to bind C-r.")
-        else:
-            print("gdb-fzf: Press Ctrl-R for fuzzy history search.")
+            print("gdb-fzf: Failed to bind ctrl-r.")
+
+        if libreadline.rl_bind_keyseq(b"\\ec", libreadline._fzf_search_command_ref) != 0:
+            print("gdb-fzf: Failed to bind alt-c.")
 
     except Exception as e:
         print(f"gdb-fzf: {e}")
