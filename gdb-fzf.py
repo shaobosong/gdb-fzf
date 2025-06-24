@@ -2,7 +2,7 @@
 
 import ctypes
 import subprocess
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 # GDB module is only available when running inside GDB
 try:
@@ -108,47 +108,52 @@ class LibReadlineProxy:
             raise SymbolNotFoundError(missing_symbols)
 
 
-def get_history_list(libreadline: LibReadlineProxy) -> List[bytes]:
-    """Retrieves the command history from readline."""
-    ret: List[bytes] = []
+def history_generator(libreadline: LibReadlineProxy) -> Iterator[bytes]:
+    seen = set()
     hlist = libreadline.history_list()
     if not hlist:
-        return ret
+        return
 
     i = 0
     while True:
         history_entry_ptr = hlist[i]
         if not history_entry_ptr:
             break
-        if history_entry_ptr[0].line:
-            ret.append(history_entry_ptr[0].line)
+        if entry := history_entry_ptr[0].line.strip():
+            if entry not in seen:
+                seen.add(entry)
+                yield entry
         i += 1
-    return ret
 
-def get_fzf_result(query: bytes, choices: List[bytes]) -> bytes:
-    """
-    Uses fzf to allow the user to select from a list of choices, with an
-    optional help preview.
-    """
-    seen = set()
-    unique_choices = [
-        s for s in (c.strip() for c in reversed(choices))
-        if s and s not in seen and not seen.add(s)
-    ]
+def get_fzf_result(extra_fzf_args: List[str], choices_generator: Iterator[bytes], query: bytes):
+    fzf_args = FZF_ARGS[:]
+    fzf_args.extend(extra_fzf_args)
+    fzf_args.extend(['--query', query.decode('utf-8', 'replace')])
+
+    if PREVIEW_ENABLED:
+        fzf_args.extend([
+            '--preview',
+            'gdb --nx --batch -ex "help $(echo {..})"'
+        ])
 
     try:
-        fzf_args = FZF_ARGS[:]
-        fzf_args.extend(['--query', query.decode('utf-8', 'replace')])
+        with subprocess.Popen(
+            fzf_args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=False
+        ) as proc:
+            for item in choices_generator:
+                if proc.poll() is not None:
+                    break
+                try:
+                    proc.stdin.write(item + b'\x00')
+                    proc.stdin.flush()
+                except BrokenPipeError:
+                    break
 
-        if PREVIEW_ENABLED:
-            fzf_args.extend([
-                '--preview',
-                'gdb --nx --batch -ex "help $(echo {..})"'
-            ])
-
-        with subprocess.Popen(fzf_args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=False) as p:
-            input_data = b'\x00'.join(unique_choices)
-            stdout_data, _ = p.communicate(input=input_data)
+            proc.stdin.close()
+            stdout_data = proc.stdout.read()
 
             results = stdout_data.strip(b'\x00').split(b'\x00')
             if len(results) > 1 and results[-1]:
@@ -156,7 +161,6 @@ def get_fzf_result(query: bytes, choices: List[bytes]) -> bytes:
             if len(results) > 0 and results[0]:
                 return results[0]
             return query
-
     except (OSError, subprocess.SubprocessError) as e:
         print(f"\nError running fzf: {e}. Is fzf installed and in your PATH?")
         return query
@@ -177,8 +181,7 @@ def fzf_search_history(count: int, key: int) -> int:
         libreadline = LibReadlineProxy()
         query = libreadline.rl_line_buffer.value or b''
 
-        history = get_history_list(libreadline)
-        selected = get_fzf_result(query, history)
+        selected = get_fzf_result(['--tac'], history_generator(libreadline), query)
 
         update_readline_buffer(libreadline, selected)
         libreadline.rl_forced_update_display()
