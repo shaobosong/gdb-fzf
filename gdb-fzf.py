@@ -2,7 +2,7 @@
 
 import ctypes
 import subprocess
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Type
 
 # GDB module is only available when running inside GDB
 try:
@@ -11,10 +11,13 @@ except ImportError:
     print("This script must be run inside GDB.")
     gdb = None
 
+
 # --- Configuration ---
+
+# Enable or disable preview for fzf.
 PREVIEW_ENABLED = True
 
-# --- Default FZF Configuration ---
+# Default FZF arguments. These can be extended or overridden.
 FZF_ARGS = [
     'fzf',
     '--bind=tab:down,btab:up',
@@ -31,6 +34,14 @@ FZF_ARGS = [
 
 # --- CTypes Structures and Definitions ---
 
+# C function type for readline command functions
+RL_COMMAND_FUNC = ctypes.CFUNCTYPE(
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_int
+)
+
+# Structure for a history entry in readline
 class HIST_ENTRY(ctypes.Structure):
     _fields_ = [
         ('line', ctypes.c_char_p),
@@ -38,6 +49,7 @@ class HIST_ENTRY(ctypes.Structure):
         ('data', ctypes.c_void_p),
     ]
 
+# Custom exception for when required C symbols cannot be found
 class SymbolNotFoundError(Exception):
     def __init__(self, missing_symbols: List[str]):
         self.missing_symbols = missing_symbols
@@ -49,31 +61,42 @@ class SymbolNotFoundError(Exception):
 
 class LibReadlineProxy:
     """
-    A proxy for the readline library that resolves all required symbols upon
-    initialization. It primarily relies on `ctypes.CDLL(None)` to find symbols
-    in the main GDB process.
+    A singleton proxy for interacting with the GNU Readline library within GDB.
+    It dynamically resolves required C symbols (functions and variables) from
+    the GDB process's memory space using ctypes.
     """
     _instance: Optional['LibReadlineProxy'] = None
+    _cbrefdict: Dict[str, ctypes.CFUNCTYPE] = {}
 
     def __new__(cls):
+        """Ensures only one instance of ReadlineProxy is created (singleton pattern)."""
         if cls._instance is None:
             instance = super().__new__(cls)
             try:
                 instance._initialize_symbols()
                 cls._instance = instance
             except (OSError, SymbolNotFoundError) as e:
-                raise RuntimeError(f"{e}") from e
+                raise RuntimeError(f"Failed to initialize LibReadlineProxy: {e}") from e
         return cls._instance
 
     def _initialize_symbols(self):
+        """
+        Loads necessary symbols from the GDB process (which links readline).
+        Raises SymbolNotFoundError if any critical symbols are not found.
+        """
         try:
+            # Load symbols from the current process's memory space
             gdb_self = ctypes.CDLL(None)
         except OSError as e:
-            raise OSError("ctypes.CDLL(None) failed to load the host process symbols.") from e
+            raise OSError(
+                "ctypes.CDLL(None) failed to load the host process symbols. "
+                "This usually means GDB is not dynamically linked or there's an environment issue."
+            ) from e
 
         missing_symbols: List[str] = []
 
-        # Functions
+        # Define required Readline functions and their ctypes signatures
+        # Format: 'symbol_name': (restype, [argtype1, argtype2, ...])
         func_defs: Dict[str, Tuple[Optional[Type[Any]], List[Type[Any]]]] = {
             'history_list': (ctypes.POINTER(ctypes.POINTER(HIST_ENTRY)), []),
             'rl_add_undo': (None, [ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_char_p]),
@@ -91,7 +114,8 @@ class LibReadlineProxy:
             except AttributeError:
                 missing_symbols.append(name)
 
-        # Variables
+        # Define required Readline global variables and their ctypes types
+        # Format: 'variable_name': ctype
         var_defs: Dict[str, Type[Any]] = {
             'rl_line_buffer': ctypes.c_char_p,
             'rl_point': ctypes.c_int,
@@ -107,8 +131,48 @@ class LibReadlineProxy:
         if missing_symbols:
             raise SymbolNotFoundError(missing_symbols)
 
+    def store(self, name: str, cb: ctypes.CFUNCTYPE) -> ctypes.CFUNCTYPE:
+        self._cbrefdict[name] = cb
+        return cb
+
+    def retrive(self, name: str) -> ctypes.CFUNCTYPE:
+        return self._cbrefdict[name]
+
+    def get_text(self) -> bytes:
+        """Returns the current content of the readline buffer."""
+        return self.rl_line_buffer.value or b''
+
+    def update_text(self, new_text: bytes):
+        """
+        Updates the current readline buffer with new_text.
+        This includes handling undo/redo and refreshing the display.
+        """
+        current_text = self.rl_line_buffer.value
+        if new_text != current_text:
+            # Add an undo entry before changing the buffer
+            self.rl_add_undo(2, 0, 0, None)
+            # Delete current text
+            self.rl_delete_text(0, self.rl_end.value)
+            # Set cursor to end
+            self.rl_point.value = self.rl_end.value
+            # Insert new text
+            self.rl_insert_text(new_text)
+            # Add an undo entry after changing the buffer
+            self.rl_add_undo(3, 0, 0, None)
+
+    def forced_refresh(self):
+        """Forced to update display"""
+        self.rl_forced_update_display()
+
+    def bind_keyseq(self, keyseq: bytes, func: RL_COMMAND_FUNC) -> int:
+        """Binds a key sequence to a readline function."""
+        return self.rl_bind_keyseq(keyseq, func)
+
+
+# --- Data Generators for FZF ---
 
 def history_generator(libreadline: LibReadlineProxy) -> Iterator[bytes]:
+    """Yields unique history entries from readline's history list."""
     seen = set()
     hlist = libreadline.history_list()
     if not hlist:
@@ -136,22 +200,36 @@ def command_generator(libreadline: LibReadlineProxy) -> Iterator[bytes]:
             commands = [cmd.strip() for cmd in command_part.split(',') if cmd.strip()]
             for cmd in commands:
                 yield cmd.encode('utf-8')
-    except RuntimeError as e:
-        raise gdb.error(f"{e}")
-    pass
+    except gdb.error as e:
+        raise RuntimeError(f"Failed to retrieve GDB commands: {e}")
+
+# --- FZF Interaction ---
 
 def get_fzf_result(extra_fzf_args: List[str], choices_generator: Iterator[bytes], query: bytes):
+    """
+    Executes fzf with the given arguments and input choices, returning the selected item.
+
+    Args:
+        extra_fzf_args: A list of additional arguments to pass to fzf.
+        choices_generator: An iterator yielding bytes (fzf input).
+        query: The initial query string to pre-fill in fzf.
+
+    Returns:
+        The selected item as bytes, or the original query if fzf returns nothing.
+    """
     fzf_args = FZF_ARGS[:]
     fzf_args.extend(extra_fzf_args)
     fzf_args.extend(['--query', query.decode('utf-8', 'replace')])
 
     if PREVIEW_ENABLED:
+        # Add a preview window showing GDB's help for the selected command
         fzf_args.extend([
             '--preview',
-            'gdb --nx --batch -ex "help $(echo {..})"'
+            'gdb --nx --batch -ex "help {r}"'
         ])
 
     try:
+        # Start fzf subprocess with PIPE for stdin/stdout to feed choices
         with subprocess.Popen(
             fzf_args,
             stdin=subprocess.PIPE,
@@ -160,61 +238,65 @@ def get_fzf_result(extra_fzf_args: List[str], choices_generator: Iterator[bytes]
         ) as proc:
             for item in choices_generator:
                 if proc.poll() is not None:
+                    # fzf process has terminated, stop feeding input
                     break
                 try:
+                    # Write item followed by null byte
                     proc.stdin.write(item + b'\x00')
                     proc.stdin.flush()
                 except BrokenPipeError:
+                    # fzf has closed its stdin (e.g., user pressed Ctrl+C or selected an item)
                     break
 
             proc.stdin.close()
             stdout_data = proc.stdout.read()
 
-            results = stdout_data.strip(b'\x00').split(b'\x00')
-            if len(results) > 1 and results[-1]:
+            # fzf returns the query and selected item(s) null-delimited.
+            # We're using --no-multi and --print-query, so the last non-empty result is the selection.
+            results: List[bytes] = stdout_data.strip(b'\x00').split(b'\x00')
+
+            # If there are multiple results (query + selection), take the last one.
+            # If only one, it's either the query or a selection if no query was present.
+            if results:
                 return results[-1]
-            if len(results) > 0 and results[0]:
-                return results[0]
+
             return query
     except (OSError, subprocess.SubprocessError) as e:
-        print(f"\ngdb-fzf: {e}. Is fzf installed and in your PATH?")
+        print(f"\ngdb-fzf: Error running fzf: {e}. Is fzf installed and in your PATH?")
         return query
 
-def update_readline_buffer(libreadline: LibReadlineProxy, new_text: bytes):
-    """Updates the content of the readline buffer."""
-    current_text = libreadline.rl_line_buffer.value
-    if new_text != current_text:
-        libreadline.rl_add_undo(2, 0, 0, None)
-        libreadline.rl_delete_text(0, libreadline.rl_end.value)
-        libreadline.rl_point.value = libreadline.rl_end.value
-        libreadline.rl_insert_text(new_text)
-        libreadline.rl_add_undo(3, 0, 0, None)
+# --- Callback for GDB ---
 
 @ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int, ctypes.c_int)
-def fzf_search_history(count: int, key: int) -> int:
+def fzf_search_history_callback(count: int, key: int) -> int:
+    """
+    Readline callback function for searching history using fzf.
+    """
     try:
         libreadline = LibReadlineProxy()
-        query = libreadline.rl_line_buffer.value or b''
 
+        query = libreadline.get_text()
         selected = get_fzf_result(['--tac'], history_generator(libreadline), query)
 
-        update_readline_buffer(libreadline, selected)
-        libreadline.rl_forced_update_display()
+        libreadline.update_text(selected)
+        libreadline.forced_refresh()
     except Exception as e:
         print(f"\ngdb-fzf: Failed to search history: {e}")
     return 0
 
-
 @ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int, ctypes.c_int)
-def fzf_search_command(count: int, key: int) -> int:
+def fzf_search_command_callback(count: int, key: int) -> int:
+    """
+    Readline callback function for searching GDB commands using fzf.
+    """
     try:
         libreadline = LibReadlineProxy()
-        query = libreadline.rl_line_buffer.value or b''
 
+        query = libreadline.get_text()
         selected = get_fzf_result([], command_generator(libreadline), query)
 
-        update_readline_buffer(libreadline, selected)
-        libreadline.rl_forced_update_display()
+        libreadline.update_text(selected)
+        libreadline.forced_refresh()
     except Exception as e:
         print(f"\ngdb-fzf: Failed to search command: {e}")
     return 0
@@ -225,13 +307,14 @@ def main():
 
     try:
         libreadline = LibReadlineProxy()
-        libreadline._fzf_search_history_ref = fzf_search_history
-        libreadline._fzf_search_command_ref = fzf_search_command
 
-        if libreadline.rl_bind_keyseq(b"\\C-r", libreadline._fzf_search_history_ref) != 0:
+        libreadline.store("fzf_search_history_callback", fzf_search_history_callback)
+        libreadline.store("fzf_search_command_callback", fzf_search_command_callback)
+
+        if libreadline.bind_keyseq(b"\\C-r", fzf_search_history_callback) != 0:
             print("gdb-fzf: Failed to bind ctrl-r.")
 
-        if libreadline.rl_bind_keyseq(b"\\ec", libreadline._fzf_search_command_ref) != 0:
+        if libreadline.bind_keyseq(b"\\ec", fzf_search_command_callback) != 0:
             print("gdb-fzf: Failed to bind alt-c.")
 
     except Exception as e:
