@@ -41,6 +41,14 @@ RL_COMMAND_FUNC = ctypes.CFUNCTYPE(
     ctypes.c_int
 )
 
+# C function type for readline completion functions
+RL_COMPLETION_FUNC = ctypes.CFUNCTYPE(
+    ctypes.c_void_p,
+    ctypes.c_char_p,
+    ctypes.c_int,
+    ctypes.c_int
+)
+
 # Structure for a history entry in readline
 class HIST_ENTRY(ctypes.Structure):
     _fields_ = [
@@ -104,6 +112,9 @@ class LibReadlineProxy:
             'rl_delete_text': (ctypes.c_int, [ctypes.c_int, ctypes.c_int]),
             'rl_forced_update_display': (ctypes.c_int, []),
             'rl_insert_text': (ctypes.c_int, [ctypes.c_char_p]),
+            # Used for ctypes memory management
+            'malloc': (ctypes.c_void_p, [ctypes.c_size_t]),
+            'free': (None, [ctypes.c_void_p]),
         }
         for name, (restype, argtypes) in func_defs.items():
             try:
@@ -120,6 +131,7 @@ class LibReadlineProxy:
             'rl_line_buffer': ctypes.c_char_p,
             'rl_point': ctypes.c_int,
             'rl_end': ctypes.c_int,
+            'rl_attempted_completion_function': ctypes.c_void_p,
         }
         for name, ctype in var_defs.items():
             try:
@@ -168,6 +180,40 @@ class LibReadlineProxy:
         """Binds a key sequence to a readline function."""
         return self.rl_bind_keyseq(keyseq, func)
 
+    def py_rl_new_single_match_list(self, match: bytes) -> int:
+        """Allocated memory for readline's completion matches."""
+        try:
+            selected_match = self.malloc(len(match) + 1)
+            if not selected_match:
+                raise MemoryError("malloc for `selected_match' failed!!!")
+            ctypes.memset(selected_match, 0, len(match) + 1)
+            ctypes.memmove(selected_match, match, len(match))
+
+            ptr_size = ctypes.sizeof(ctypes.c_void_p)
+            selected_matches = self.malloc(2 * ptr_size)
+            if not selected_matches:
+                self.free(selected_match)
+                raise MemoryError("malloc for `selected_matches' failed!!!")
+            ctypes.memset(selected_matches, 0, 2 * ptr_size)
+            ctypes.memmove(selected_matches, ctypes.byref(ctypes.c_void_p(selected_match)), ptr_size)
+            return selected_matches
+        except Exception as e:
+            raise RuntimeError(f"Failed to create a single match list: {e}")
+
+    def py_rl_free_match_list(self, matches_void_ptr: int):
+        """Free the memory allocated for readline's completion matches."""
+        try:
+            if matches_void_ptr == 0:
+                return
+            matches_type_ptr = ctypes.cast(matches_void_ptr, ctypes.POINTER(ctypes.c_void_p))
+            for i in matches_type_ptr:
+                if i is None:
+                    break
+                self.free(i)
+            self.free(matches_void_ptr)
+        except Exception as e:
+            raise RuntimeError(f"Failed to free a match list: {e}")
+
 
 # --- Data Generators for FZF ---
 
@@ -202,6 +248,15 @@ def command_generator(libreadline: LibReadlineProxy) -> Iterator[bytes]:
                 yield cmd.encode('utf-8')
     except gdb.error as e:
         raise RuntimeError(f"Failed to retrieve GDB commands: {e}")
+
+def completion_generator(matches_ptr: ctypes.POINTER(ctypes.c_char_p)) -> Iterator[bytes]:
+    seen = set()
+    for m in matches_ptr:
+        if m is None:
+            break
+        if m != b'' and m not in seen:
+            seen.add(m)
+            yield m
 
 # --- FZF Interaction ---
 
@@ -301,6 +356,55 @@ def fzf_search_command_callback(count: int, key: int) -> int:
         print(f"\ngdb-fzf: Failed to search command: {e}")
     return 0
 
+@ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int, ctypes.c_int)
+def fzf_attempted_completion_callback(text: bytes, start: int, end: int) -> int:
+    """
+    Custom readline attempted completion function that integrates fzf.
+    This replaces readline's default attempted completion mechanism.
+    """
+    try:
+        libreadline = LibReadlineProxy()
+
+        # We first invoke the original callback function
+        original_callback = libreadline.retrive("rl_attempted_completion_function")
+        matches = original_callback(text, start, end)
+        if matches is None:
+            return None
+
+        matches_ptr = ctypes.cast(matches, ctypes.POINTER(ctypes.c_char_p))
+
+        common_prefix = matches_ptr[0]
+        for i, b in enumerate(matches_ptr):
+            if b is None:
+                break
+
+        # Nice! Just a single match and let the original completer handle it directly
+        if i == 1:
+            return matches
+
+        # Return early to let the original completion system finish completing
+        # the rest of the common prefix that hasn't been fully completed yet
+        if text != b'' and text != common_prefix:
+            return matches
+
+        # Now FZF takes over and handles the matches
+        prompt = libreadline.rl_line_buffer.value.decode('utf-8')
+        selected = get_fzf_result([f'--prompt={prompt}> '], completion_generator(matches_ptr), b'')
+        libreadline.forced_refresh()
+        libreadline.py_rl_free_match_list(matches)
+
+        # Avoid to trigger original behaviour if we do nothing
+        if selected == b'':
+            return None
+
+        # Create a match list with a single completion result
+        selected_matches = libreadline.py_rl_new_single_match_list(selected)
+
+        return selected_matches
+    except Exception as e:
+        print(f"gdb-fzf: Failed to attempt complete: {e}")
+        return None
+
 def main():
     if not gdb:
         return
@@ -310,12 +414,16 @@ def main():
 
         libreadline.store("fzf_search_history_callback", fzf_search_history_callback)
         libreadline.store("fzf_search_command_callback", fzf_search_command_callback)
+        libreadline.store("fzf_attempted_completion_callback", fzf_attempted_completion_callback)
 
         if libreadline.bind_keyseq(b"\\C-r", fzf_search_history_callback) != 0:
             print("gdb-fzf: Failed to bind ctrl-r.")
 
         if libreadline.bind_keyseq(b"\\ec", fzf_search_command_callback) != 0:
             print("gdb-fzf: Failed to bind alt-c.")
+
+        libreadline.store("rl_attempted_completion_function", RL_COMPLETION_FUNC(libreadline.rl_attempted_completion_function.value))
+        libreadline.rl_attempted_completion_function.value = ctypes.cast(fzf_attempted_completion_callback, ctypes.c_void_p).value
 
     except Exception as e:
         print(f"gdb-fzf: {e}")
