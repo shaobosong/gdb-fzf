@@ -6,7 +6,7 @@ GDB-FZF enhances the GDB command line by integrating [fzf](https://github.com/ju
 
   - **History Search (`Ctrl-r`):** Instantly fuzzy search your entire GDB command history with fzf.
   - **Command Search (`Alt-c`):** Find any GDB command without knowing its exact name.
-  - **Tab Completion (`Tab`):** When GDB's tab completion finds multiple options, this plugin replaces the standard list with an interactive fzf menu, allowing you to filter and select with ease.
+  - **Tab Completion (`Tab`):** Seamlessly enhances GDB's native completion. It first completes the longest common prefix, and if multiple options remain, it opens an fzf menu to interactively filter and select the final choice.
   - **Live Command Preview:** When searching commands, an optional preview window displays the GDB help text for the highlighted item.
 
 ## Requirements
