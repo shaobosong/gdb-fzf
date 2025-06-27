@@ -232,7 +232,6 @@ def history_generator(libreadline: LibReadlineProxy) -> Iterator[bytes]:
 
     seen = set()
     for line in reversed(lines):
-        print(line)
         if line not in seen:
             seen.add(line)
             yield line
