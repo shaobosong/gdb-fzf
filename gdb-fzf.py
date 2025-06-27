@@ -290,7 +290,6 @@ def get_fzf_result(extra_fzf_args: List[str], choices_generator: Iterator[bytes]
             fzf_args,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            text=False
         ) as proc:
             for item in choices_generator:
                 if proc.poll() is not None:
