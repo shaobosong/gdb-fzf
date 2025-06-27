@@ -219,21 +219,23 @@ class LibReadlineProxy:
 
 def history_generator(libreadline: LibReadlineProxy) -> Iterator[bytes]:
     """Yields unique history entries from readline's history list."""
-    seen = set()
     hlist = libreadline.history_list()
     if not hlist:
         return
 
-    i = 0
-    while True:
-        history_entry_ptr = hlist[i]
-        if not history_entry_ptr:
+    lines = []
+    for i, e in enumerate(hlist):
+        if not e:
             break
-        if entry := history_entry_ptr[0].line.strip():
-            if entry not in seen:
-                seen.add(entry)
-                yield entry
-        i += 1
+        line = e[0].line.strip()
+        lines.append(line)
+
+    seen = set()
+    for line in reversed(lines):
+        print(line)
+        if line not in seen:
+            seen.add(line)
+            yield line
 
 def command_generator(libreadline: LibReadlineProxy) -> Iterator[bytes]:
     try:
@@ -331,7 +333,7 @@ def fzf_search_history_callback(count: int, key: int) -> int:
         libreadline = LibReadlineProxy()
 
         query = libreadline.get_text()
-        selected = get_fzf_result(['--tac'], history_generator(libreadline), query)
+        selected = get_fzf_result([], history_generator(libreadline), query)
 
         libreadline.update_text(selected)
         libreadline.forced_refresh()
