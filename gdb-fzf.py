@@ -398,7 +398,7 @@ def fzf_attempted_completion_callback(text: bytes, start: int, end: int) -> int:
 
         # Remove bytes after last space
         last_space = text.rfind(b' ')
-        text = text[:last_space + 1] if last_space != -1 else text
+        text = text[:last_space + 1] if last_space != -1 else b''
 
         # Run FZF
         prompt = text.decode("utf-8")
