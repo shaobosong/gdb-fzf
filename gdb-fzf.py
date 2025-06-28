@@ -14,6 +14,9 @@ except ImportError:
 
 # --- Configuration ---
 
+# Enable or disable longest common prefix completion
+LONGEST_COMMON_PREFIX_COMPLETION = False
+
 # Enable or disable preview for fzf.
 PREVIEW_ENABLED = True
 
@@ -383,9 +386,10 @@ def fzf_attempted_completion_callback(text: bytes, start: int, end: int) -> int:
 
         # Return early to let the original completer finish completing the
         # rest of the common prefix that hasn't been fully completed yet
-        common_prefix = matches_ptr[0]
-        if text != b'' and text != common_prefix:
-            return matches
+        if LONGEST_COMMON_PREFIX_COMPLETION:
+            common_prefix = matches_ptr[0]
+            if text != b'' and text != common_prefix:
+                return matches
 
         # Now FZF takes over and handles the matches
 
