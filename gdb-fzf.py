@@ -250,14 +250,14 @@ def command_generator(libreadline: LibReadlineProxy) -> Iterator[bytes]:
     except gdb.error as e:
         raise RuntimeError(f"Failed to retrieve GDB commands: {e}")
 
-def completion_generator(matches_ptr: ctypes.POINTER(ctypes.c_char_p)) -> Iterator[bytes]:
+def completion_generator(prefix: bytes, matches_ptr: ctypes.POINTER(ctypes.c_char_p)) -> Iterator[bytes]:
     seen = set()
     for m in matches_ptr:
         if m is None:
             break
         if m != b'' and m not in seen:
             seen.add(m)
-            yield m
+            yield prefix + m
 
 # --- FZF Interaction ---
 
@@ -373,7 +373,6 @@ def fzf_attempted_completion_callback(text: bytes, start: int, end: int) -> int:
 
         matches_ptr = ctypes.cast(matches, ctypes.POINTER(ctypes.c_char_p))
 
-        common_prefix = matches_ptr[0]
         for i, b in enumerate(matches_ptr):
             if b is None:
                 break
@@ -382,14 +381,35 @@ def fzf_attempted_completion_callback(text: bytes, start: int, end: int) -> int:
         if i == 1:
             return matches
 
-        # Return early to let the original completion system finish completing
-        # the rest of the common prefix that hasn't been fully completed yet
+        # Return early to let the original completer finish completing the
+        # rest of the common prefix that hasn't been fully completed yet
+        common_prefix = matches_ptr[0]
         if text != b'' and text != common_prefix:
             return matches
 
         # Now FZF takes over and handles the matches
-        prompt = libreadline.rl_line_buffer.value.decode('utf-8')
-        selected = get_fzf_result([f'--prompt={prompt}> '], completion_generator(matches_ptr), b'')
+
+        # Ignore first match
+        matches1 = matches + ctypes.sizeof(ctypes.c_char_p)
+        matches_ptr = ctypes.cast(matches1, ctypes.POINTER(ctypes.c_char_p))
+
+        # Get the text in line editor
+        text = libreadline.get_text()
+
+        # Remove bytes after last space
+        last_space = text.rfind(b' ')
+        text = text[:last_space + 1] if last_space != -1 else text
+
+        # Run FZF
+        prompt = text.decode("utf-8")
+        extra_fzf_args = [
+            f'--prompt={prompt}> ',
+            '--delimiter= ',
+            '--nth=-1',
+            '--with-nth=-1',
+            f'--accept-nth=-1',
+        ]
+        selected = get_fzf_result(extra_fzf_args, completion_generator(text, matches_ptr), b'')
         libreadline.forced_refresh()
         libreadline.py_rl_free_match_list(matches)
 
