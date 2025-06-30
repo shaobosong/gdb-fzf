@@ -254,13 +254,17 @@ def command_generator(libreadline: LibReadlineProxy) -> Iterator[bytes]:
         raise RuntimeError(f"Failed to retrieve GDB commands: {e}")
 
 def completion_generator(prefix: bytes, matches_ptr: ctypes.POINTER(ctypes.c_char_p)) -> Iterator[bytes]:
-    seen = set()
+    unique_matches = set()
     for m in matches_ptr:
         if m is None:
             break
-        if m != b'' and m not in seen:
-            seen.add(m)
-            yield prefix + m
+        if m != b'':
+            unique_matches.add(m)
+
+    sorted_unique_matches = sorted(list(unique_matches))
+
+    for m in sorted_unique_matches:
+        yield prefix + m
 
 # --- FZF Interaction ---
 
