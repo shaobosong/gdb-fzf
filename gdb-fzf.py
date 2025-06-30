@@ -113,7 +113,7 @@ class LibReadlineProxy:
             'rl_add_undo': (None, [ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_char_p]),
             'rl_bind_keyseq': (ctypes.c_int, [ctypes.c_char_p, ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int, ctypes.c_int)]),
             'rl_delete_text': (ctypes.c_int, [ctypes.c_int, ctypes.c_int]),
-            'rl_forced_update_display': (ctypes.c_int, []),
+            'rl_redraw_prompt_last_line': (None, []),
             'rl_insert_text': (ctypes.c_int, [ctypes.c_char_p]),
             # Used for ctypes memory management
             'malloc': (ctypes.c_void_p, [ctypes.c_size_t]),
@@ -177,7 +177,7 @@ class LibReadlineProxy:
 
     def forced_refresh(self):
         """Forced to update display"""
-        self.rl_forced_update_display()
+        self.rl_redraw_prompt_last_line()
 
     def bind_keyseq(self, keyseq: bytes, func: RL_COMMAND_FUNC) -> int:
         """Binds a key sequence to a readline function."""
