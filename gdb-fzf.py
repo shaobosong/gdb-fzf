@@ -253,7 +253,11 @@ def command_generator(libreadline: LibReadlineProxy) -> Iterator[bytes]:
     except gdb.error as e:
         raise RuntimeError(f"Failed to retrieve GDB commands: {e}")
 
-def completion_generator(prefix: bytes, matches_ptr: ctypes.POINTER(ctypes.c_char_p)) -> Iterator[bytes]:
+def completion_generator(text: bytes, start: int, end: int, matches_ptr: ctypes.POINTER(ctypes.c_char_p)) -> Iterator[bytes]:
+    end = text.find(b' ', end)
+    if end == -1:
+        end = len(text)
+
     unique_matches = set()
     for m in matches_ptr:
         if m is None:
@@ -264,7 +268,7 @@ def completion_generator(prefix: bytes, matches_ptr: ctypes.POINTER(ctypes.c_cha
     sorted_unique_matches = sorted(list(unique_matches))
 
     for m in sorted_unique_matches:
-        yield prefix + m
+        yield text[0:start] + m + text[end:]
 
 # --- FZF Interaction ---
 
@@ -404,20 +408,16 @@ def fzf_attempted_completion_callback(text: bytes, start: int, end: int) -> int:
         # Get the text in line editor
         text = libreadline.get_text()
 
-        # Remove bytes after last space
-        last_space = text.rfind(b' ')
-        text = text[:last_space + 1] if last_space != -1 else b''
+        # Get index of the field under completion in the space-separated string
+        nth = text[0:start].count(b' ') + 1
 
         # Run FZF
-        prompt = text.decode("utf-8")
         extra_fzf_args = [
-            f'--prompt={prompt}> ',
             '--delimiter= ',
-            '--nth=-1',
-            '--with-nth=-1',
-            f'--accept-nth=-1',
+            f'--with-nth={nth}',
+            f'--accept-nth={nth}',
         ]
-        selected = get_fzf_result(extra_fzf_args, completion_generator(text, matches_ptr), b'')
+        selected = get_fzf_result(extra_fzf_args, completion_generator(text, start, end, matches_ptr), b'')
         libreadline.forced_refresh()
         libreadline.py_rl_free_match_list(matches)
 
