@@ -4,15 +4,15 @@ GDB-FZF enhances the GDB command line by integrating [fzf](https://github.com/ju
 
 |                 Disable Help Preview                  |                 Enable Help Preview                 |
 | :---------------------------------------------------: | :-------------------------------------------------: |
-| ![disable_help_preview](res/disable_help_preview.gif) | ![enable_help_preview](res/enable_help_preview.gif) |
+| ![disable_help_preview](resources/disable_help_preview.gif) | ![enable_help_preview](resources/enable_help_preview.gif) |
 
 |                           Disable Longest Common Prefix Completion                            |                           Enable Longest Common Prefix Completion                           |
 | :-------------------------------------------------------------------------------------------: | :-----------------------------------------------------------------------------------------: |
-| ![disable_longest_common_prefix_completion](res/disable_longest_common_prefix_completion.gif) | ![enable_longest_common_prefix_completion](res/enable_longest_common_prefix_completion.gif) |
+| ![disable_longest_common_prefix_completion](resources/disable_longest_common_prefix_completion.gif) | ![enable_longest_common_prefix_completion](resources/enable_longest_common_prefix_completion.gif) |
 
 |                        Disable Only List Completion Field                         |                        Enable Only List Completion Field                        |
 | :-------------------------------------------------------------------------------: | :-----------------------------------------------------------------------------: |
-| ![disable_only_list_completion_field](res/disable_only_list_completion_field.gif) | ![enable_only_list_completion_field](res/enable_only_list_completion_field.gif) |
+| ![disable_only_list_completion_field](resources/disable_only_list_completion_field.gif) | ![enable_only_list_completion_field](resources/enable_only_list_completion_field.gif) |
 
 ## Features
 
