@@ -15,10 +15,10 @@ except ImportError:
 # --- Configuration ---
 
 # Enable or disable longest common prefix completion
-LONGEST_COMMON_PREFIX_COMPLETION = False
+READLINE_LONGEST_COMMON_PREFIX_COMPLETION = False
 
 # Enable or disable preview for fzf.
-PREVIEW_ENABLED = True
+FZF_PREVIEW = True
 
 # Enable or disable only list completion filed in fzf
 FZF_ONLY_LIST_COMPLETION_FIELD = False
@@ -291,7 +291,7 @@ def get_fzf_result(extra_fzf_args: List[str], choices_generator: Iterator[bytes]
     fzf_args.extend(extra_fzf_args)
     fzf_args.extend(['--query', query.decode('utf-8', 'replace')])
 
-    if PREVIEW_ENABLED:
+    if FZF_PREVIEW:
         # Add a preview window showing GDB's help for the selected command
         fzf_args.extend([
             '--preview',
@@ -397,7 +397,7 @@ def fzf_attempted_completion_callback(text: bytes, start: int, end: int) -> int:
 
         # Return early to let the original completer finish completing the
         # rest of the common prefix that hasn't been fully completed yet
-        if LONGEST_COMMON_PREFIX_COMPLETION:
+        if READLINE_LONGEST_COMMON_PREFIX_COMPLETION:
             common_prefix = matches_ptr[0]
             if text != b'' and text != common_prefix:
                 return matches
