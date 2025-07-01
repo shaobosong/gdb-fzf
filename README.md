@@ -1,12 +1,24 @@
-# GDB-FZF: Supercharge GDB with FZF
+# GDB-FZF: GDB with FZF
 
 GDB-FZF enhances the GDB command line by integrating [fzf](https://github.com/junegunn/fzf), the powerful command-line fuzzy finder. It provides a fast and intuitive way to search command history, discover commands, and navigate tab completions.
+
+|                 Disable Help Preview                  |                 Enable Help Preview                 |
+| :---------------------------------------------------: | :-------------------------------------------------: |
+| ![disable_help_preview](res/disable_help_preview.gif) | ![enable_help_preview](res/enable_help_preview.gif) |
+
+|                           Disable Longest Common Prefix Completion                            |                           Enable Longest Common Prefix Completion                           |
+| :-------------------------------------------------------------------------------------------: | :-----------------------------------------------------------------------------------------: |
+| ![disable_longest_common_prefix_completion](res/disable_longest_common_prefix_completion.gif) | ![enable_longest_common_prefix_completion](res/enable_longest_common_prefix_completion.gif) |
+
+|                        Disable Only List Completion Field                         |                        Enable Only List Completion Field                        |
+| :-------------------------------------------------------------------------------: | :-----------------------------------------------------------------------------: |
+| ![disable_only_list_completion_field](res/disable_only_list_completion_field.gif) | ![enable_only_list_completion_field](res/enable_only_list_completion_field.gif) |
 
 ## Features
 
   - **History Search (`Ctrl-r`):** Instantly fuzzy search your entire GDB command history with fzf.
   - **Command Search (`Alt-c`):** Find any GDB command without knowing its exact name.
-  - **Tab Completion (`Tab`):** Seamlessly enhances GDB's native completion. It first completes the longest common prefix, and if multiple options remain, it opens an fzf menu to interactively filter and select the final choice.
+  - **Tab Completion (`Tab`):** Enhances GDB's native completion. It first completes the longest common prefix, and if multiple options remain, it opens an fzf menu to interactively filter and select the final choice.
   - **Live Command Preview:** When searching commands, an optional preview window displays the GDB help text for the highlighted item.
 
 ## Requirements
@@ -45,11 +57,25 @@ In the fzf window, type to filter, use `Enter` to select, and `Esc` to cancel. F
 
 You can customize behavior by editing the global variables at the top of `gdb-fzf.py`:
 
-  - **`PREVIEW_ENABLED`**:
-    Set to `False` to disable the command help preview window for `Alt-c` searches.
+  - **`READLINE_LONGEST_COMMON_PREFIX_COMPLETION`**:
+    Set to `False` to disable longest common prefix completion.
 
     ```python
-    PREVIEW_ENABLED = True
+    READLINE_LONGEST_COMMON_PREFIX_COMPLETION = True
+    ```
+
+  - **`FZF_PREVIEW`**:
+    Set to `False` to disable the command help preview window.
+
+    ```python
+    FZF_PREVIEW = True
+    ```
+
+  - **`FZF_ONLY_LIST_COMPLETION_FIELD`**:
+    Set to `False` to disable only list completion filed in fzf.
+
+    ```python
+    FZF_ONLY_LIST_COMPLETION_FIELD = True
     ```
 
   - **`FZF_ARGS`**:
