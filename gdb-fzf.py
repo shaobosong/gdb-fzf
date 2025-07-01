@@ -15,13 +15,13 @@ except ImportError:
 # --- Configuration ---
 
 # Enable or disable longest common prefix completion
-READLINE_LONGEST_COMMON_PREFIX_COMPLETION = False
+READLINE_LONGEST_COMMON_PREFIX_COMPLETION = True
 
 # Enable or disable preview for fzf.
 FZF_PREVIEW = True
 
 # Enable or disable only list completion filed in fzf
-FZF_ONLY_LIST_COMPLETION_FIELD = False
+FZF_ONLY_LIST_COMPLETION_FIELD = True
 
 # Default FZF arguments. These can be extended or overridden.
 FZF_ARGS = [
