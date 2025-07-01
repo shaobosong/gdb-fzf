@@ -20,6 +20,9 @@ LONGEST_COMMON_PREFIX_COMPLETION = False
 # Enable or disable preview for fzf.
 PREVIEW_ENABLED = True
 
+# Enable or disable only list completion filed in fzf
+FZF_ONLY_LIST_COMPLETION_FIELD = False
+
 # Default FZF arguments. These can be extended or overridden.
 FZF_ARGS = [
     'fzf',
@@ -414,9 +417,10 @@ def fzf_attempted_completion_callback(text: bytes, start: int, end: int) -> int:
         # Run FZF
         extra_fzf_args = [
             '--delimiter= ',
-            f'--with-nth={nth}',
             f'--accept-nth={nth}',
         ]
+        if FZF_ONLY_LIST_COMPLETION_FIELD:
+            extra_fzf_args.append(f'--with-nth={nth}')
         selected = get_fzf_result(extra_fzf_args, completion_generator(text, start, end, matches_ptr), b'')
         libreadline.forced_refresh()
         libreadline.py_rl_free_match_list(matches)
