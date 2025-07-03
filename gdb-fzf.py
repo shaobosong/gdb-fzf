@@ -31,6 +31,7 @@ FZF_ARGS = [
     'fzf',
     '--bind=tab:down,btab:up',
     f'--bind=alt-h:execute(gdb --nx --batch -ex "help {{r}}"|{FZF_HELP_PAGER})',
+    '--bind=change:first',
     '--cycle',
     '--height=40%',
     '--layout=reverse',
