@@ -352,7 +352,9 @@ def fzf_search_history_callback(count: int, key: int) -> int:
         query = libreadline.get_text()
         selected = get_fzf_result([], history_generator(libreadline), query)
 
-        libreadline.update_text(selected)
+        if selected != b'':
+            libreadline.update_text(selected)
+
         libreadline.forced_refresh()
     except Exception as e:
         print(f"\ngdb-fzf: Failed to search history: {e}")
@@ -369,7 +371,9 @@ def fzf_search_command_callback(count: int, key: int) -> int:
         query = libreadline.get_text()
         selected = get_fzf_result([], command_generator(libreadline), query)
 
-        libreadline.update_text(selected)
+        if selected != b'':
+            libreadline.update_text(selected)
+
         libreadline.forced_refresh()
     except Exception as e:
         print(f"\ngdb-fzf: Failed to search command: {e}")
