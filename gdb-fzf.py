@@ -431,7 +431,7 @@ def fzf_attempted_completion_callback(text: bytes, start: int, end: int) -> int:
         if FZF_ONLY_LIST_COMPLETION_FIELD:
             extra_fzf_args.append(f'--with-nth={nth}')
 
-        selected = get_fzf_result(extra_fzf_args, completion_generator(line_text, start, end, matches_ptr), b'')
+        selected = get_fzf_result(extra_fzf_args, completion_generator(line_text, start, end, matches_ptr), text)
 
         libreadline.forced_refresh()
         libreadline.py_rl_free_match_list(matches)
