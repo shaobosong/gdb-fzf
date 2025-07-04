@@ -408,7 +408,7 @@ def fzf_attempted_completion_callback(text: bytes, start: int, end: int) -> int:
         # rest of the common prefix that hasn't been fully completed yet
         if READLINE_LONGEST_COMMON_PREFIX_COMPLETION:
             common_prefix = matches_ptr[0]
-            if text != b'' and text != common_prefix:
+            if text != common_prefix:
                 return matches
 
         # Now FZF takes over and handles the matches
