@@ -417,11 +417,11 @@ def fzf_attempted_completion_callback(text: bytes, start: int, end: int) -> int:
         matches1 = matches + ctypes.sizeof(ctypes.c_char_p)
         matches_ptr = ctypes.cast(matches1, ctypes.POINTER(ctypes.c_char_p))
 
-        # Get the text in line editor
-        text = libreadline.get_text()
+        # Get the line text in line editor
+        line_text = libreadline.get_text()
 
         # Get index of the field under completion in the space-separated string
-        nth = text[0:start].count(b' ') + 1
+        nth = line_text[0:start].count(b' ') + 1
 
         # Run FZF
         extra_fzf_args = [
@@ -431,7 +431,7 @@ def fzf_attempted_completion_callback(text: bytes, start: int, end: int) -> int:
         if FZF_ONLY_LIST_COMPLETION_FIELD:
             extra_fzf_args.append(f'--with-nth={nth}')
 
-        selected = get_fzf_result(extra_fzf_args, completion_generator(text, start, end, matches_ptr), b'')
+        selected = get_fzf_result(extra_fzf_args, completion_generator(line_text, start, end, matches_ptr), b'')
 
         libreadline.forced_refresh()
         libreadline.py_rl_free_match_list(matches)
