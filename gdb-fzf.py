@@ -262,7 +262,8 @@ def command_generator(libreadline: LibReadlineProxy) -> Iterator[bytes]:
         raise RuntimeError(f"Failed to retrieve GDB commands: {e}")
 
 def completion_generator(text: bytes, start: int, end: int, matches_ptr: ctypes.POINTER(ctypes.c_char_p)) -> Iterator[bytes]:
-    end = text.find(b' ', end)
+    delim = ' '
+    end = text.find(delim.encode('utf-8'), end)
     if end == -1:
         end = len(text)
 
@@ -420,12 +421,21 @@ def fzf_attempted_completion_callback(text: bytes, start: int, end: int) -> int:
         # Get the line text in line editor
         line_text = libreadline.get_text()
 
+        # > b example:xxxxx
+        #             |
+        #          <start>: Need insert a delimiter before the completed word
+        delim = ' '
+        if start != 0 and line_text[start - 1] != delim.encode('utf-8'):
+            line_text = line_text[0:start] + delim.encode('utf-8') + line_text[start:]
+            start = start + 1
+            end = end + 1
+
         # Get index of the field under completion in the space-separated string
-        nth = line_text[0:start].count(b' ') + 1
+        nth = line_text[0:start].count(delim.encode('utf-8')) + 1
 
         # Run FZF
         extra_fzf_args = [
-            '--delimiter= ',
+            f'--delimiter={delim}',
             f'--accept-nth={nth}',
         ]
         if FZF_ONLY_LIST_COMPLETION_FIELD:
