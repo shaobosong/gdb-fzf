@@ -14,7 +14,7 @@ GDB-FZF enhances the GDB command line by integrating [fzf](https://github.com/ju
 | :-------------------------------------------------------------------------------------: | :-----------------------------------------------------------------------------------: |
 | ![disable_only_list_completion_field](resources/disable_only_list_completion_field.gif) | ![enable_only_list_completion_field](resources/enable_only_list_completion_field.gif) |
 
-|   GDB Command Help with Pager (Alt-h)   |
+|   GDB Command Help with Pager (Ctrl-v)   |
 | :-------------------------------------: |
 | ![help_pager](resources/help_pager.gif) |
 
@@ -61,7 +61,7 @@ Once fzf startup, the following keybindings are active in the FZF prompt:
 | :-------------- | :----------------------------------------------------------------------- |
 | **`Tab`**       | Move selection down                                                      |
 | **`Shift-Tab`** | Move selection up                                                        |
-| **`Alt-h`**     | Show GDB command help in pager view                                      |
+| **`Ctrl-v`**    | Show GDB command help in pager view                                      |
 
 In the fzf window, type to filter, use `Enter` to select, and `Esc` to cancel. For advanced search patterns, see the official [fzf search syntax guide](https://github.com/junegunn/fzf?tab=readme-ov-file#search-syntax).
 

@@ -30,7 +30,7 @@ FZF_HELP_PAGER = "less -i"
 FZF_ARGS = [
     'fzf',
     '--bind=tab:down,btab:up',
-    f'--bind=alt-h:execute(gdb --nx --batch -ex "help {{r}}"|{FZF_HELP_PAGER})',
+    f'--bind=ctrl-v:execute(gdb --nx --batch -ex "help {{r}}"|{FZF_HELP_PAGER})',
     '--bind=change:first',
     '--cycle',
     '--height=40%',
