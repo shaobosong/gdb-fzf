@@ -21,7 +21,7 @@ GDB-FZF enhances the GDB command line by integrating [fzf](https://github.com/ju
 ## Features
 
   - **History Search (`Ctrl-r`):** Instantly fuzzy search your entire GDB command history with fzf.
-  - **Command Search (`Alt-c`):** Find any GDB command without knowing its exact name.
+  - **Command Search (`Ctrl-t`):** Find any GDB command without knowing its exact name.
   - **Tab Completion (`Tab`):** Enhances GDB's native completion. It first completes the longest common prefix, and if multiple options remain, it opens an fzf menu to interactively filter and select the final choice.
   - **Live Command Preview:** When searching commands, an optional preview window displays the GDB help text for the highlighted item.
 
@@ -52,7 +52,7 @@ Once loaded, the following keybindings are active in the GDB prompt:
 | Keybinding      | Action                                                                   |
 | :-------------- | :----------------------------------------------------------------------- |
 | **`Ctrl-r`**    | Open fzf to search command history.                                      |
-| **`Alt-c`**     | Open fzf to search all available GDB commands.                           |
+| **`Ctrl-t`**    | Open fzf to search all available GDB commands.                           |
 | **`Tab`**       | Trigger GDB's completion. If multiple options exist, fzf will open.      |
 
 Once fzf startup, the following keybindings are active in the FZF prompt:
@@ -119,8 +119,7 @@ You can customize behavior by editing the global variables at the top of `gdb-fz
   - **Keybindings do not work:**
 
       - Check for error messages when GDB starts to see if the script failed to load.
-      - Ensure other GDB scripts are not overriding the `Ctrl-r` or `Alt-c` bindings.
-      - Note that `Alt-c` may require pressing `Escape` then `c` in some terminals.
+      - Ensure other GDB scripts are not overriding the `Ctrl-r` or `Ctrl-t` bindings.
 
 ## License
 

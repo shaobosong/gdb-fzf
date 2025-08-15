@@ -119,7 +119,8 @@ class LibReadlineProxy:
         func_defs: Dict[str, Tuple[Optional[Type[Any]], List[Type[Any]]]] = {
             'history_list': (ctypes.POINTER(ctypes.POINTER(HIST_ENTRY)), []),
             'rl_add_undo': (None, [ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_char_p]),
-            'rl_bind_keyseq': (ctypes.c_int, [ctypes.c_char_p, ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int, ctypes.c_int)]),
+            'rl_bind_key': (ctypes.c_int, [ctypes.c_int, ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int, ctypes.c_int)]),
+            # 'rl_bind_keyseq': (ctypes.c_int, [ctypes.c_char_p, ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int, ctypes.c_int)]),
             'rl_delete_text': (ctypes.c_int, [ctypes.c_int, ctypes.c_int]),
             'rl_redraw_prompt_last_line': (None, []),
             'rl_insert_text': (ctypes.c_int, [ctypes.c_char_p]),
@@ -187,9 +188,13 @@ class LibReadlineProxy:
         """Forced to update display"""
         self.rl_redraw_prompt_last_line()
 
-    def bind_keyseq(self, keyseq: bytes, func: RL_COMMAND_FUNC) -> int:
+    def bind_key(self, key: int, func: RL_COMMAND_FUNC) -> int:
         """Binds a key sequence to a readline function."""
-        return self.rl_bind_keyseq(keyseq, func)
+        return self.rl_bind_key(key, func)
+
+    # def bind_keyseq(self, keyseq: bytes, func: RL_COMMAND_FUNC) -> int:
+    #     """Binds a key sequence to a readline function."""
+    #     return self.rl_bind_keyseq(keyseq, func)
 
     def py_rl_new_single_match_list(self, match: bytes) -> int:
         """Allocated memory for readline's completion matches."""
@@ -469,11 +474,11 @@ def main():
         libreadline.store("fzf_search_command_callback", fzf_search_command_callback)
         libreadline.store("fzf_attempted_completion_callback", fzf_attempted_completion_callback)
 
-        if libreadline.bind_keyseq(b"\\C-r", fzf_search_history_callback) != 0:
+        if libreadline.bind_key(0x12, fzf_search_history_callback) != 0:
             print("gdb-fzf: Failed to bind ctrl-r.")
 
-        if libreadline.bind_keyseq(b"\\ec", fzf_search_command_callback) != 0:
-            print("gdb-fzf: Failed to bind alt-c.")
+        if libreadline.bind_key(0x14, fzf_search_command_callback) != 0:
+            print("gdb-fzf: Failed to bind ctrl-t.")
 
         libreadline.store("rl_attempted_completion_function", RL_COMPLETION_FUNC(libreadline.rl_attempted_completion_function.value))
         libreadline.rl_attempted_completion_function.value = ctypes.cast(fzf_attempted_completion_callback, ctypes.c_void_p).value
